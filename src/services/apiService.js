@@ -1,29 +1,15 @@
 const API_URL = import.meta.env.VITE_API_URL
 
 function toEmployeePayload(formData) {
-  const { mobilityType } = formData
-
-  let start_date = null
-  let end_date = null
-
-  if (mobilityType === 'start') {
-    start_date = formData.startDate || null
-  } else if (mobilityType === 'end') {
-    end_date = formData.endDate || null
-  } else if (mobilityType === 'fixed-period') {
-    start_date = formData.startDate || null
-    end_date = formData.endDate || null
-  }
-
   return {
     gpid: formData.gpid,
     full_name: formData.fullName,
-    mobility_type: mobilityType || null,
+    mobility_type: formData.mobilityType || null,
     original_position: formData.originalPosition || null,
     temporary_position: formData.temporaryPosition || null,
     location: formData.location || null,
-    start_date,
-    end_date,
+    start_date: formData.startDate || null,
+    end_date: formData.endDate || null,
     hrbp: formData.hrbp || null,
   }
 }
