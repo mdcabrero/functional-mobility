@@ -1,23 +1,17 @@
 <script setup>
 import { ref, reactive } from 'vue'
+import { storeToRefs } from 'pinia'
 import DateInput from './DateInput.vue'
 import {
-  useMobilityForm,
+  useMobilityFormStore,
   MOBILITY_TYPES,
   HRBP_OPTIONS,
   POSITION_OPTIONS,
-} from '../composables/useMobilityForm.js'
+} from '../stores/mobilityForm.js'
 
-const {
-  formData,
-  errors,
-  dateLabel,
-  showEndDate,
-  updateField,
-  fillTestData,
-  importFromCsv,
-  submit,
-} = useMobilityForm()
+const store = useMobilityFormStore()
+const { formData, errors, showStartDate, showEndDate } = storeToRefs(store)
+const { updateField, setMobilityType, fillTestData, importFromCsv, submit } = store
 
 const isSubmitting = ref(false)
 const toast = reactive({ visible: false, message: '', type: 'success' })
@@ -83,7 +77,7 @@ async function handleCsvImport(event) {
         type="button"
         class="segmented-button"
         :class="{ 'is-active': formData.mobilityType === type.value }"
-        @click="updateField('mobilityType', type.value)"
+        @click="setMobilityType(type.value)"
       >
         {{ type.label }}
       </button>
@@ -118,15 +112,15 @@ async function handleCsvImport(event) {
       <div class="form-section">
         <h2 class="section-title">Datos del Documento</h2>
         <div class="fields-grid">
-          <div class="form-group">
-            <label class="form-label" for="date">{{ dateLabel }}</label>
+          <div v-if="showStartDate" class="form-group">
+            <label class="form-label" for="startDate">Fecha Inicio</label>
             <DateInput
-              id="date"
-              :model-value="formData.date"
-              :has-error="!!errors.date"
-              @update:model-value="updateField('date', $event)"
+              id="startDate"
+              :model-value="formData.startDate"
+              :has-error="!!errors.startDate"
+              @update:model-value="updateField('startDate', $event)"
             />
-            <span v-if="errors.date" class="error-message">{{ errors.date }}</span>
+            <span v-if="errors.startDate" class="error-message">{{ errors.startDate }}</span>
           </div>
 
           <div v-if="showEndDate" class="form-group">
