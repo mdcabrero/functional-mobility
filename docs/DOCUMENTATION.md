@@ -39,11 +39,12 @@ This is a single-page Vue 3 application that provides an HR form for registering
 | Technology | Version | Purpose |
 |------------|---------|---------|
 | Vue | 3.5 | UI framework (Composition API + `<script setup>`) |
+| Pinia | 3.0 | State management (single store for form state, validation, actions) |
 | Vite | 7.3 | Build tool and dev server |
 | Native Fetch API | — | HTTP requests (no external HTTP library) |
 | CSS Custom Properties | — | Design system and theming |
 
-No router, no state management library — all state lives in a single composable.
+No router — all form state lives in a single Pinia store.
 
 ---
 
@@ -57,8 +58,8 @@ functional-mobility/
 │   ├── components/
 │   │   ├── FunctionalMobilityForm.vue   # Main form UI, submission handling, toast feedback
 │   │   └── DateInput.vue                # Reusable date picker (v-model compatible)
-│   ├── composables/
-│   │   └── useMobilityForm.js           # Form state, validation, constants, CSV import logic
+│   ├── stores/
+│   │   └── mobilityForm.js             # Pinia store — form state, validation, constants, CSV import logic
 │   ├── services/
 │   │   ├── apiService.js                # HTTP client — sends POST to backend
 │   │   └── csvService.js                # CSV parsing and field matching utilities
@@ -81,7 +82,7 @@ The form is divided into 4 sections:
 | Section | Fields | Notes |
 |---------|--------|-------|
 | **Signatory (HRBP)** | `hrbp` (select) | HR Business Partner who signs the document |
-| **Datos del Documento** | `date`, `endDate`, `location` | `endDate` only appears for "Periodo Fijo" mobility type |
+| **Datos del Documento** | `startDate`, `endDate`, `location` | `startDate` shown for start/fixed-period; `endDate` shown for end/fixed-period |
 | **Datos del Empleado** | `fullName`, `gpid` | Employee name and ID |
 | **Posiciones** | `temporaryPosition`, `originalPosition` | Both are select dropdowns with 10 predefined position options |
 
@@ -91,17 +92,22 @@ A segmented control at the top determines the type of mobility letter:
 
 | Value | Label | Effect on form |
 |-------|-------|----------------|
-| `start` | Inicio de Movilidad | Date label = "Fecha Inicio", no end date field |
-| `end` | Fin de Movilidad | Date label = "Fecha Fin", no end date field |
-| `fixed-period` | Periodo Fijo | Date label = "Fecha Inicio", end date field appears (required) |
+| `start` | Inicio de Movilidad | Shows `startDate` ("Fecha Inicio") only |
+| `end` | Fin de Movilidad | Shows `endDate` ("Fecha Fin") only |
+| `fixed-period` | Periodo Fijo | Shows both `startDate` ("Fecha Inicio") and `endDate` ("Fecha Fin") |
+
+Switching between mobility types resets all date fields to prevent stale values from leaking into the wrong payload.
 
 ### Validation rules
 
 All validation runs client-side before any API call is made:
 
-- **Required fields:** `date`, `location`, `fullName`, `gpid`, `temporaryPosition`, `originalPosition`, `hrbp`
-- **Conditional:** `endDate` is required only when `mobilityType === 'fixed-period'`
-- **Cross-field:** When both dates are present, `endDate` must be after `date`
+- **Always required:** `location`, `fullName`, `gpid`, `temporaryPosition`, `originalPosition`, `hrbp`
+- **Type-dependent dates:**
+  - `start` → `startDate` required
+  - `end` → `endDate` required
+  - `fixed-period` → both `startDate` and `endDate` required
+- **Cross-field:** For `fixed-period`, `endDate` must be after `startDate`
 - **Error messages** are displayed inline below each field in Spanish
 
 ### Form data shape (internal)
@@ -109,8 +115,8 @@ All validation runs client-side before any API call is made:
 ```js
 {
   mobilityType: 'start',       // 'start' | 'end' | 'fixed-period'
-  date: '2026-02-10',          // ISO date string (YYYY-MM-DD)
-  endDate: '',                 // ISO date string, only for fixed-period
+  startDate: '2026-02-10',    // ISO date string (YYYY-MM-DD), for start/fixed-period
+  endDate: '',                 // ISO date string, for end/fixed-period
   location: 'Barcelona',
   fullName: 'Juan García',
   gpid: '12345678',
@@ -150,8 +156,8 @@ The form uses camelCase field names internally, but the backend expects snake_ca
 | `originalPosition` | `original_position` | string | No | Current job title |
 | `temporaryPosition` | `temporary_position` | string | No | New temporary job title |
 | `location` | `location` | string | No | Office / delegation |
-| `date` | `start_date` | date | No | Mobility start (or end) date |
-| `endDate` | `end_date` | date | No | Only for `fixed-period` type |
+| `startDate` | `start_date` | date | No | Mobility start date (start and fixed-period types) |
+| `endDate` | `end_date` | date | No | Mobility end date (end and fixed-period types) |
 | `hrbp` | `hrbp` | string | No | HR Business Partner name |
 | *(not in form)* | `cost_center` | string | No | Not collected by this form; stored as `null` |
 
@@ -160,8 +166,8 @@ The form uses camelCase field names internally, but the backend expects snake_ca
 The backend uses Pydantic with `date | None` and `str | None` types. Sending an empty string `""` for a date field would cause a `422 Validation Error`. To avoid this, the payload mapper converts all empty strings to `null`:
 
 ```js
-start_date: formData.date || null,    // "" becomes null
-end_date: formData.endDate || null,   // "" becomes null
+start_date: formData.startDate || null,   // "" becomes null
+end_date: formData.endDate || null,       // "" becomes null
 ```
 
 ---
@@ -179,12 +185,12 @@ User clicks "Enviar"
 │  handleSubmit()                         │
 │  - Guards against double-submit         │
 │  - Sets isSubmitting = true             │
-│  - Calls submit() from composable       │
+│  - Calls submit() from Pinia store      │
 └─────────────┬───────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────────┐
-│  useMobilityForm.js                     │
+│  mobilityForm.js (Pinia store)          │
 │  submit()                               │
 │  - Runs validate() on all fields        │
 │  - If invalid → returns { success: false }
@@ -345,7 +351,7 @@ The system recognizes multiple aliases per field (Spanish and English, with/with
 
 | Form Field | Recognized CSV Headers |
 |------------|----------------------|
-| `date` | fecha inicio, fecha, date, fecha documento |
+| `startDate` | fecha inicio, fecha, date, fecha documento |
 | `endDate` | fecha fin, fecha final, end date |
 | `location` | ubicacion, ubicación, delegacion, delegación |
 | `fullName` | nombre y apellidos, nombre completo, nombre, full name |
